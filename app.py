@@ -164,17 +164,11 @@ def save_presets():
         # sys.exit( 1 )
     
 def load_patch (id):
-    if id in banks[currentBank].presets:
-        banks[currentBank].presets[id].load(katana)
-        currentPatch = banks[currentBank].presets[id]
-        print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
-        print_lcd("Bank: {0}\nPatch: {1}".format(banks[currentBank].name, id), currentPatch.name)
-    else:
-        print("There is no patch " + str(id) + ", loading panel")
-        # here we will 'load' an empty patch
-        katana.send_pc(4)
-        temp = "Bank: " + str(banks[currentBank].name) + " Patch: " + str(id)
-        print_lcd(temp, "New Patch")
+    banks[currentBank].presets[id].load(katana)
+    currentPatch = banks[currentBank].presets[id]
+    print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
+    print_lcd(banks[currentBank].name, currentPatch.name)
+    return currentPatch
 
 # Setup GPIO stuff
 lcd = CharLCD(cols=16, rows=2, pin_rs=37, pin_e=35, pins_data=[33, 31, 29, 23])
@@ -185,7 +179,6 @@ GPIO.setup(bankButtonUp, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(bankButtonDown, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.add_event_detect(bankButtonUp, GPIO.BOTH, bouncetime=500)
 GPIO.add_event_detect(bankButtonDown, GPIO.BOTH, bouncetime=500)
-#offset = (currentBank * bankSize) + 1 
  
 # Display loading        
 print_lcd("Loading...","")
@@ -197,8 +190,7 @@ mido.set_backend('mido.backends.rtmidi')
 scriptdir = os.environ.get('PYTHONPATH')
 if scriptdir == None:
     scriptdir = os.path.dirname(os.path.abspath(__file__))
-datadir = scriptdir + '/parameters/'
-rangeObj = Range( datadir + 'ranges.json' )
+rangeObj = Range(scriptdir + '/parameters/ranges.json' )
 
 # Amp interface
 amp = args[1]
@@ -221,12 +213,11 @@ try:
     while (1 < 2):
         #"""
         for buttonIndex, pin in enumerate(stompButton):
-            #if ((GPIO.input(pin) == False)):
             if GPIO.event_detected(pin):
                 patch_id = int(buttonIndex) + 1
                 if patch_id in banks[currentBank].presets:
                     newPatch = banks[currentBank].presets[patch_id]
-                    if (newPatch.id == currentPatch):
+                    if (newPatch == currentPatch):
                         if bypass == True: 
                             bypass = False
                             print("Bypass disabled")
@@ -235,38 +226,57 @@ try:
                             print("Bypass enabled")
                     else:
                         bypass = False
-                        load_patch(patch_id)
+                        currentPatch = load_patch(patch_id)                        
                 else: 
-                    print("There is no patch " + str(patch_id) + ", loading panel")
-                    # here we will 'load' an empty patch
+                    # here we will 'load' an empty patch (actually just loading the panel)
                     katana.send_pc(4)
-                    print_lcd("Bank: {0}\nPatch: {1}".format(banks[currentBank].name, patch_id), "New Patch")
+                    print("No Patch " + str(patch_id) + ". Loading panel.")
+                    print_lcd(banks[currentBank].name, "New Patch")
+                    currentPatch = None
         if GPIO.event_detected(bankButtonUp):
             currentBank += 1
-            #offset = (currentBank * bankSize) + 1
-            print_lcd("Bank " + banks[currentBank].name, "")
-        #load_patch(currentBank * bankSize)
+            print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
         if GPIO.event_detected(bankButtonDown):
             if(currentBank > 0):
                 currentBank -= 1
-                #offset = (currentBank * bankSize) + 1
-                print_lcd("Bank " + banks[currentBank].name, "")
-                #load_patch(currentBank * bankSize)
+                print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
             
         """
         c = str(input("> "))
-        if c == "signal":
-            katana.signal()
-        elif c == "list":
-            for i in sorted(presets):
-                print(str(i) + ": " + presets[i].name)
-        elif c == "save":
+        #elif c == "list":
+        #    for i in sorted(presets):
+        #        print(str(i) + ": " + presets[i].name)
+        if c == "save":
+            # TODO
             i = int(input("Save As Patch Number: "))
             capture_preset(katana, i)
             print("Saved as " + presets[i].name)
+        elif c == "up":
+            currentBank += 1
+            print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
+        elif c == "down":
+            if(currentBank > 0):
+                currentBank -= 1
+                print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
         elif c == "load":
-            i = int(input("Load Patch Number: "))
-            load_patch(i)
+            patch_id = int(input("Load Patch Number: "))
+            if patch_id in banks[currentBank].presets:
+                newPatch = banks[currentBank].presets[patch_id]
+                if (newPatch == currentPatch):
+                    if bypass == True: 
+                        bypass = False
+                        print("Bypass disabled")
+                    else:
+                        bypass = True
+                        print("Bypass enabled")
+                else:
+                    bypass = False
+                    load_patch(patch_id)
+            else: 
+                # here we will 'load' an empty patch (actually just loading the panel)
+                katana.send_pc(4)
+                print("No Patch " + str(patch_id) + ". Loading panel.")
+                print_lcd(banks[currentBank].name, "New Patch")
         elif c == "channel":
             i = input("Load Channel (0-4): ")
             if i == "0":
