@@ -8,7 +8,7 @@ import RPi.GPIO as GPIO
 from RPLCD import CharLCD
 from katana import Katana
 from config import Config
-from preset import * # PresetsHandler, Bank, Preset, Range
+from presets import * # PresetsHandler, Bank, Preset, Range
 
 # current bank
 currentBank = 1
