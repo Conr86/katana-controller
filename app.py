@@ -4,80 +4,22 @@
 import sys
 import os
 import mido
-import json, toml
 import RPi.GPIO as GPIO
 from RPLCD import CharLCD
 from katana import Katana
-from range import Range
-
-# command line parameters
-args = sys.argv
+from config import Config
+from preset import * # PresetsHandler, Bank, Preset, Range
 
 # current bank
 currentBank = 1
 # current patch
 currentPatch = None
+
 # whether bypass is enabled (ignore patch)
 bypass = False
 # all the banks, loaded from file
 banks = {}
 
-class Bank:
-    def __init__(self, name, id, presets):
-        self.id = id
-        self.name = name
-        self.presets = presets # list or dictionary of presets
-        
-    def toJSON(self):
-        data = {}
-        data['name'] = self.name
-        data['id'] = self.id
-        data['presets'] = []
-        for current_preset in self.presets:
-           data['presets'].append(current_preset.toJSON())
-        return data
-
-class Preset:
-    def __init__(self, id, name, parms):
-        self.id = id
-        self.name = name
-        self.parms = parms
-        
-    def toJSON(self):
-        item = {}
-        item['name'] = self.name
-        item['patch'] = []
-        for current_parm in self.parms:
-            item['patch'].append({
-                'addr': current_parm,
-                'data': self.parms[current_parm]
-            })
-        return item
-    def load(self, katana):
-        for current_parm in self.parms:
-            addr_bytes = []
-            data_bytes = []
-            for hex in current_parm.split():
-                addr_bytes.append(int(hex, 16))
-            
-            for hex in self.parms[current_parm].split():
-                data_bytes.append( int(hex,16) )
-            addr = tuple(addr_bytes)
-            data = tuple(data_bytes)
-            if addr[0] == 0xff:
-                sleep(data[0] / 1000)
-                continue
-            katana.send_sysex_data(addr, data)
-    
-class Config:
-    def __init__(self, file):
-        with open(file) as conffile:
-            config = toml.loads(conffile.read())
-        self.katana = config['katana']
-        self.files = config['files']
-        self.lcd = config['lcd']
-        self.buttons = config['buttons']
-        
 def print_lcd (line_1, line_2):
     lcd.clear()
     # First line
@@ -102,64 +44,25 @@ def capture_preset( katana, bank, id ):
 
     banks[bank].presets[id] = Preset(id, name, parms)
     # Persist to disk
-    save_presets()
+    save_presets(config.files['preset_file'], banks)
     # Pulse for thing
     katana.signal()
-                
-def load_presets(preset_file):
-    with open(preset_file, 'r') as file:
-        json_data = json.load(file)
-        for bank in json_data:
-            # get current bank id
-            bank_id = int(bank)
-            # get current bank's name
-            bank_name = json_data[bank]['name']
-            # create empty container for all the presets in the bank
-            bank_presets = {}
-            # add all the presets to the bank
-            for preset in json_data[bank]['presets']:
-                preset_id = int(preset)
-                preset_name = json_data[bank]['presets'][preset]['name']
-                preset_parms = {}
-                # for every range thing (addr and data pair)
-                for range in json_data[bank]['presets'][preset]['patch']:
-                    addr = str(range['addr'])
-                    data = str(range['data'])
-                    preset_parms[addr] = data
-                # add current preset to current bank
-                bank_presets[preset_id] = Preset(preset_id, preset_name, preset_parms)
-            # add bank to bank database thing
-            banks[bank_id] = Bank(bank_name, bank_id, bank_presets)
 
-# Rename existing data file and persist current
-# live data to disk
-def save_presets():
-    try:
-        with open(preset_file, 'w') as file:  
-            json_data = {}
-            for bank in banks:
-                json_data[bank] = bank.toJSON()
-                #for i in presets:
-                #    json_data[i] = presets[i].toJSON()
-            # save to file   
-            json.dump(json_data, file, indent=4)
-                    
-    except OSError as e:
-        print( "Error saving presets: " + e )
-        # sys.exit( 1 )
-    
 def load_patch (id):
-    banks[currentBank].presets[id].load(katana)
+    # Load the patch to the Katana amp
+    katana.load_patch(banks[currentBank].presets[id].parms)
+    # Set (local) currentPatch to be the new patch
     currentPatch = banks[currentBank].presets[id]
-    print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
+    # Update screen with new patch name
     print_lcd(banks[currentBank].name, currentPatch.name)
+    print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
+    # This will set global currentPatch to be the current patch
     return currentPatch
-    
     
 # Load config file
 config = Config('config.toml')
 
-# Setup LCD screen,m using value in config file
+# Setup LCD screen, using value in config file
 lcd = CharLCD(cols = config.lcd['cols'], rows=config.lcd['rows'], pin_rs=config.lcd['pin_rs'], pin_e=config.lcd['pin_e'], pins_data=config.lcd['pins_data'])
     
 # Display loading screen     
@@ -179,13 +82,10 @@ GPIO.add_event_detect(config.buttons['bank_button_down'], GPIO.BOTH, bouncetime=
 mido.set_backend(config.katana['backend'])
 
 # Load parameter metadata
-scriptdir = os.environ.get('PYTHONPATH')
-if scriptdir == None:
-    scriptdir = os.path.dirname(os.path.abspath(__file__))
-rangeObj = Range(scriptdir + config.files['ranges_file'])
+rangeObj = Range(config.files['ranges_file'])
 
 # Load presets
-load_presets(config.files['preset_file'])
+banks = PresetsHandler.load_presets(config.files['preset_file'])
 
 # Setup amp
 katana = Katana(config.katana['amp'], config.katana['channel'], config.katana['clear_input'])

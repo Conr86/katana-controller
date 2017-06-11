@@ -221,7 +221,24 @@ class Katana:
             self.send_sysex_data( VOLUME_PEDAL_ADDR, (50,) )
 
         self.send_sysex_data( VOLUME_PEDAL_ADDR, (current_volume,) )
-
+    
+    # Loads patch to Katana
+    def load_patch(self, patch):
+        # Parameter 'patch' is a Preset's 'parms' dict
+        for current_parm in patch:
+            addr_bytes = []
+            data_bytes = []
+            for hex in current_parm.split():
+                addr_bytes.append(int(hex, 16))
+            
+            for hex in patch[current_parm].split():
+                data_bytes.append( int(hex,16) )
+            addr = tuple(addr_bytes)
+            data = tuple(data_bytes)
+            if addr[0] == 0xff:
+                sleep(data[0] / 1000)
+                continue
+            self.send_sysex_data(addr, data)
 
 if __name__ == '__main__':
     for test in (PANEL_STATE_ADDR, CURRENT_PRESET_ADDR):

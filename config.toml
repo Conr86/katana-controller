@@ -4,7 +4,7 @@
 # location of preset file
 preset_file = 'presets.json'
 # location of ranges.json, probably won't change
-ranges_file = '/parameters/ranges.json'
+ranges_file = 'parameters/ranges.json'
 
 [katana]
 amp = 'KATANA:KATANA MIDI 1 20:0'
