@@ -4,24 +4,15 @@
 import sys
 import os
 import mido
-import json
+import json, toml
 import RPi.GPIO as GPIO
 from RPLCD import CharLCD
 from katana import Katana
 from range import Range
 
-# which pins (number not broadcom id) the stomp-buttons are connected to    
-stompButton = [7,12,16,15]
-# pin that the bank button is connected to
-bankButtonUp = 11
-bankButtonDown = 13
 # command line parameters
 args = sys.argv
-# location of preset file
-preset_file = None
 
-# patches in each bank (number of stomp buttons)
-bankSize = 4
 # current bank
 currentBank = 1
 # current patch
@@ -30,7 +21,6 @@ currentPatch = None
 bypass = False
 # all the banks, loaded from file
 banks = {}
-#presets = {}
 
 class Bank:
     def __init__(self, name, id, presets):
@@ -78,6 +68,15 @@ class Preset:
                 sleep(data[0] / 1000)
                 continue
             katana.send_sysex_data(addr, data)
+    
+class Config:
+    def __init__(self, file):
+        with open(file) as conffile:
+            config = toml.loads(conffile.read())
+        self.katana = config['katana']
+        self.files = config['files']
+        self.lcd = config['lcd']
+        self.buttons = config['buttons']
         
 def print_lcd (line_1, line_2):
     lcd.clear()
@@ -107,7 +106,7 @@ def capture_preset( katana, bank, id ):
     # Pulse for thing
     katana.signal()
                 
-def load_presets():
+def load_presets(preset_file):
     with open(preset_file, 'r') as file:
         json_data = json.load(file)
         for bank in json_data:
@@ -131,21 +130,7 @@ def load_presets():
                 bank_presets[preset_id] = Preset(preset_id, preset_name, preset_parms)
             # add bank to bank database thing
             banks[bank_id] = Bank(bank_name, bank_id, bank_presets)
-   
-   
-'''
-for preset in json_data:
-    curr_id = int(preset)
-    curr_name = json_data[preset]['name']
-    curr_parms = {}
-    
-    # for every range thing (addr and data pair)
-    for range in json_data[preset]['patch']:
-        addr = str(range['addr'])
-        data = str(range['data'])
-        curr_parms[addr] = data
-    presets[curr_id] = Preset(curr_id, curr_name, curr_parms)     
-'''
+
 # Rename existing data file and persist current
 # live data to disk
 def save_presets():
@@ -169,50 +154,47 @@ def load_patch (id):
     print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
     print_lcd(banks[currentBank].name, currentPatch.name)
     return currentPatch
+    
+    
+# Load config file
+config = Config('config.toml')
 
-# Setup GPIO stuff
-lcd = CharLCD(cols=16, rows=2, pin_rs=37, pin_e=35, pins_data=[33, 31, 29, 23])
-for button in stompButton:
-    GPIO.setup(button, GPIO.IN, pull_up_down=GPIO.PUD_UP) 
-    GPIO.add_event_detect(button, GPIO.BOTH, bouncetime=500)
-GPIO.setup(bankButtonUp, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(bankButtonDown, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.add_event_detect(bankButtonUp, GPIO.BOTH, bouncetime=500)
-GPIO.add_event_detect(bankButtonDown, GPIO.BOTH, bouncetime=500)
- 
-# Display loading        
+# Setup LCD screen,m using value in config file
+lcd = CharLCD(cols = config.lcd['cols'], rows=config.lcd['rows'], pin_rs=config.lcd['pin_rs'], pin_e=config.lcd['pin_e'], pins_data=config.lcd['pins_data'])
+    
+# Display loading screen     
 print_lcd("Loading...","")
 
+# Setup GPIO buttons
+for button in config.buttons['stomp_buttons']:
+    GPIO.setup(button, GPIO.IN, pull_up_down=GPIO.PUD_UP) 
+    GPIO.add_event_detect(button, GPIO.BOTH, bouncetime=500)
+# Setup events for bank up and down buttons
+GPIO.setup(config.buttons['bank_button_up'], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(config.buttons['bank_button_down'], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.add_event_detect(config.buttons['bank_button_up'], GPIO.BOTH, bouncetime=500)
+GPIO.add_event_detect(config.buttons['bank_button_down'], GPIO.BOTH, bouncetime=500)
+
 # Backend stuff
-mido.set_backend('mido.backends.rtmidi')
+mido.set_backend(config.katana['backend'])
 
 # Load parameter metadata
 scriptdir = os.environ.get('PYTHONPATH')
 if scriptdir == None:
     scriptdir = os.path.dirname(os.path.abspath(__file__))
-rangeObj = Range(scriptdir + '/parameters/ranges.json' )
+rangeObj = Range(scriptdir + config.files['ranges_file'])
 
-# Amp interface
-amp = args[1]
-# Amp MIDI port 
-try:
-    amp_channel = int( args[2] ) - 1
-except ValueError:
-    print( "Arg2 must be numeric!\n" )
-    sys.exit( 1 )
-    
-# Preset data
-preset_file = args[3] #'presets.json'
-load_presets()
+# Load presets
+load_presets(config.files['preset_file'])
 
 # Setup amp
-katana = Katana(amp, amp_channel, clear_input=True)
+katana = Katana(config.katana['amp'], config.katana['channel'], config.katana['clear_input'])
 print_lcd("Katana Ready", "Select Patch")
 
 try:
     while (1 < 2):
         #"""
-        for buttonIndex, pin in enumerate(stompButton):
+        for buttonIndex, pin in enumerate(config.buttons['stomp_buttons']):
             if GPIO.event_detected(pin):
                 patch_id = int(buttonIndex) + 1
                 if patch_id in banks[currentBank].presets:
@@ -233,20 +215,22 @@ try:
                     print("No Patch " + str(patch_id) + ". Loading panel.")
                     print_lcd(banks[currentBank].name, "New Patch")
                     currentPatch = None
-        if GPIO.event_detected(bankButtonUp):
+        if GPIO.event_detected(config.buttons['bank_button_up']):
             currentBank += 1
             print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
-        if GPIO.event_detected(bankButtonDown):
+        if GPIO.event_detected(config.buttons['bank_button_down']):
             if(currentBank > 0):
                 currentBank -= 1
                 print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
             
         """
         c = str(input("> "))
-        #elif c == "list":
-        #    for i in sorted(presets):
-        #        print(str(i) + ": " + presets[i].name)
-        if c == "save":
+        if c == "list":
+            for i in banks:
+                print (banks[i].name)
+                for j in sorted(banks[i].presets):
+                    print("  {0}: {1}".format(j, banks[i].presets[j].name))
+        elif c == "save":
             # TODO
             i = int(input("Save As Patch Number: "))
             capture_preset(katana, i)
@@ -260,6 +244,7 @@ try:
                 print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
         elif c == "load":
             patch_id = int(input("Load Patch Number: "))
+            patch_id = int(buttonIndex) + 1
             if patch_id in banks[currentBank].presets:
                 newPatch = banks[currentBank].presets[patch_id]
                 if (newPatch == currentPatch):
@@ -271,34 +256,23 @@ try:
                         print("Bypass enabled")
                 else:
                     bypass = False
-                    load_patch(patch_id)
+                    currentPatch = load_patch(patch_id)                        
             else: 
                 # here we will 'load' an empty patch (actually just loading the panel)
                 katana.send_pc(4)
                 print("No Patch " + str(patch_id) + ". Loading panel.")
                 print_lcd(banks[currentBank].name, "New Patch")
+                currentPatch = None
         elif c == "channel":
-            i = input("Load Channel (0-4): ")
-            if i == "0":
-                katana.send_pc(0)
-                print("Loaded channel: " + str(i))
-            elif i == "1":
-                katana.send_pc(1)
-                print("Loaded channel: " + str(i))
-            elif i == "2":
-                katana.send_pc(2)
-                print("Loaded channel: " + str(i))
-            elif i == "3":
-                katana.send_pc(3)
-                print("Loaded channel: " + str(i))
-            elif i == "4":
-                katana.send_pc(4)
+            i = int(input("Load Channel (0-4): "))
+            if i <= 4:
+                katana.send_pc(i)
                 print("Loaded channel: " + str(i))
             else:
                 print("Not valid")
         elif c == "clear":
             i = int(input("Clear Patch Number: "))
-            presets.pop(i, None)
+            banks[currentBank].presets.pop(i, None)
             save_presets()
             print ("Deleted preset " + str(i))
         #"""
