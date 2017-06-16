@@ -1,5 +1,9 @@
 # Config for Katana-Controller
 
+[general]
+# Number of banks
+number_of_banks = 9
+
 [files]
 # location of preset file
 preset_file = 'presets.json'
@@ -10,22 +14,28 @@ ranges_file = 'parameters/ranges.json'
 amp = 'KATANA:KATANA MIDI 1 20:0'
 channel = 1
 backend = 'mido.backends.rtmidi'
-clear_input = false
+clear_input = true
 
 [lcd]
 # number of columns
-cols = 16
+cols = 20
 # number of rows
-rows = 2
+rows = 4
+# use i2c
+use_i2c = true
+# i2c address, if using i2c
+i2c_addr = '0x3F'
+# i2c bus, 0 for original pi, 1 for rev 2 and later
+i2c_bus= 1
 # pins that everything is connect to
-pin_rs = 37
-pin_e = 35
+#pin_rs = 37
+#pin_e = 35
 # 4 bit mode, you'll want to change this if using 8 bit mode or i2c
-pins_data = [33, 31, 29, 23]
+#pins_data = [33, 31, 29, 23]
 
 [buttons]
 # Which pins (number not broadcom id) the stomp-buttons are connected to    
-stomp_buttons = [7, 12, 16, 15]
+stomp_buttons = [40,38,36,32]
 # Pin that the bank up/down buttons are connected to
-bank_button_up = 11
-bank_button_down = 13
+bank_button_up = 12
+bank_button_down = 11
