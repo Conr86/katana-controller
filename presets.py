@@ -31,10 +31,11 @@ banks
         - ...
 
 '''
+
 class Bank:
-    def __init__(self, name, id, presets):
+    def __init__(self, name, presets):
         # Unique bank id
-        self.id = id
+        #self.id = id
         # Bank name
         self.name = name 
         # List or dictionary of presets
@@ -44,16 +45,14 @@ class Bank:
         # Returns data ready to be dumped as json file
         data = {}
         data['name'] = self.name
-        data['id'] = self.id
-        data['presets'] = []
+        data['presets'] = {}
         for current_preset in self.presets:
-           data['presets'].append(current_preset.toJSON())
+           #data['presets'].append(self.presets[current_preset].toJSON())
+           data['presets'][current_preset] = self.presets[current_preset].toJSON()
         return data        
         
 class Preset:
-    def __init__(self, id, name, parms):
-        # Preset id (probably between 1 and 4)
-        self.id = id
+    def __init__(self, name, parms):
         # Name of preset
         self.name = name
         # The actual patch (address and data)
@@ -95,7 +94,7 @@ class PresetsHandler:
             bank_presets = {}
             # add all the presets to the bank
             for preset in json_data[bank]['presets']:
-                preset_id = int(preset)
+                #preset_id = int(preset)
                 preset_name = json_data[bank]['presets'][preset]['name']
                 preset_parms = {}
                 # for every range thing (addr and data pair)
@@ -104,20 +103,20 @@ class PresetsHandler:
                     data = str(range['data'])
                     preset_parms[addr] = data
                 # add current preset to current bank
-                bank_presets[preset_id] = Preset(preset_id, preset_name, preset_parms)
+                bank_presets[int(preset)] = Preset(preset_name, preset_parms)
             # add bank to bank database thing
-            banks[bank_id] = Bank(bank_name, bank_id, bank_presets)
+            banks[bank_id] = Bank(bank_name, bank_presets)
         return banks
         
     # Save all live data to preset file
     def save_presets(banks, preset_file):
         try:
+            json_data = {}
+            for bank in banks:
+                json_data[int(bank)] = banks[bank].toJSON()
             # Open preset file
             with open(preset_file, 'w') as file:  
-                json_data = {}
-            for bank in banks:
-                json_data[bank] = bank.toJSON()
-            # Save to file  
-            json.dump(json_data, file, indent=4) 
+                # Save to file  
+                json.dump(json_data, file, indent=4) 
         except OSError as e:
             print( "Error saving presets: " + e )

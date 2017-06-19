@@ -10,4 +10,5 @@ class Config:
         self.katana = config['katana']
         self.files = config['files']
         self.lcd = config['lcd']
+        self.leds = config['leds']
         self.buttons = config['buttons']

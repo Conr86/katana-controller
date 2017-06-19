@@ -9,7 +9,6 @@ import RPi.GPIO as GPIO
 import i2c_lcd_driver
 from katana import Katana
 from config import Config
-from buttons import ButtonHandler
 from presets import * # PresetsHandler, Bank, Preset, Range
 
 # current bank
@@ -18,8 +17,18 @@ currentBank = 1
 # all the banks, loaded from file
 banks = {}
 
+# Saving a preset, waiting for user to press the button to tell it where to save to
+capturing = False
+
 # Load config file
 config = Config('config.toml')
+
+# Using the GPIO pin numbers (BOARD) instead of broadcom ids (BCM)
+# If you import RPLCD, it sets the mode to BOARD as well, so we'll stick with it.
+GPIO.setmode(GPIO.BOARD)
+
+for pin in config.leds['pins']:
+    GPIO.setup(pin, GPIO.OUT)
 
 # Setup LCD screen, using value in config file
 if (config.lcd['use_i2c'] == True):
@@ -31,7 +40,7 @@ else:
     lcd = CharLCD(cols = config.lcd['cols'], rows=config.lcd['rows'], pin_rs=config.lcd['pin_rs'], pin_e=config.lcd['pin_e'], pins_data=config.lcd['pins_data'])
     
 
-def print_lcd (line_1, line_2):
+def print_lcd (line_1, line_2 = '', line_3 = '', line_4=''):
     lcd.clear()
     # First line
     lcd.cursor_pos = (0,0) 
@@ -39,10 +48,26 @@ def print_lcd (line_1, line_2):
     # Second Line
     lcd.cursor_pos = (1,0) 
     lcd.write_string(str(line_2))
+    # Third
+    lcd.cursor_pos = (2,0) 
+    lcd.write_string(str(line_3))
+    # Fourth
+    lcd.cursor_pos = (3,0) 
+    lcd.write_string(str(line_4))
+    
+def rename_bank(bank):
+    name = str (input("New bank name: "))
+    banks[bank].name = name
+    print_lcd("Renamed bank {0} to {1}".format(bank, name))
     
 # Capture and persist a new preset (overwrites existing)
-def capture_preset( katana, bank, id ):
-    name = input("Name: ")
+def capture_preset(bank, id):
+
+    # Display message
+    print_lcd("Saving in bank {0}".format(bank),"Preset {0}".format(id))
+    
+    # Construct the preset
+    name = str(input("Name: "))
     parms = {}
     for rec in rangeObj.get_coords():
         first = rec['baseAddr']
@@ -53,37 +78,53 @@ def capture_preset( katana, bank, id ):
             data_hex = ' '.join( "%02x" % i for i in d)
             parms[addr_hex] = data_hex
 
-    banks[bank].presets[id] = Preset(id, name, parms)
+    if bank not in banks:
+        # Create new bank
+        banks[bank] = Bank("New Bank", presets = {})
+        
+    # Add to bank
+    banks[bank].presets[id] = Preset(name, parms)
+    
     # Persist to disk
-    save_presets(config.files['preset_file'], banks)
-    # Pulse for thing
+    PresetsHandler.save_presets(banks, config.files['preset_file'])
+    
+    # Do thing on the amp, so we know it's done something
     katana.signal()
     
 def buttonPressed (buttonIndex):
     patch_id = int(config.buttons['stomp_buttons'].index(buttonIndex)) + 1
-   
+    global capturing
+        
+    for pin in config.leds['pins']:
+        GPIO.output(pin, GPIO.LOW)
+    GPIO.output(config.leds['pins'][patch_id - 1], GPIO.HIGH)
+    
+    if (capturing == True):
+        capture_preset(currentBank, patch_id)
+        capturing = False
+        return
+        
     # If currentBank is System Bank (0)
     if (currentBank == 0):
         loadChannel(patch_id - 1)
-    # If currentBank is a used bank (1-9 with patchs)
+        
+    # If currentBank is a used bank (1-9 with patches)
     elif currentBank in banks:
         # Check if there is a patch for the button pressed
-        if patch_id in banks[currentBank].presets:
+        if patch_id in banks[currentBank].presets: # Bank exists and preset exists
             # Get the new patch from the banks
             newPatch = banks[currentBank].presets[patch_id]
             # Load the new patch
             load_patch(patch_id)
-        else: 
-            # here we will 'load' an empty patch (actually just loading the panel)
+        else: # Bank exists, but empty preset
+            # Here we will 'load' an empty patch (actually just loading the panel)
             katana.send_pc(4)
-            print("No Patch " + str(patch_id) + ". Loading panel.")
-            print_lcd(banks[currentBank].name, "New Patch")
-    # If currentBank is an empty bank (1-9 without patches)
-    else:
-        # here we will 'load' an empty patch (actually just loading the panel)
+            print_lcd("Bank {0}".format(currentBank), banks[currentBank].name, "New Patch")
+            
+    else: # Empty Bank
+        # Here we will 'load' an empty patch (actually just loading the panel)
         katana.send_pc(4)
-        print("No Patch " + str(patch_id) + ". Loading panel.")
-        print_lcd("Empty Bank", "New Patch")
+        print_lcd("Bank {0}".format(currentBank), "Empty Bank", "New Patch")
      
 def load_patch (id):
     # Load the patch to the Katana amp
@@ -91,21 +132,21 @@ def load_patch (id):
     # Set (local) currentPatch to be the new patch
     currentPatch = banks[currentBank].presets[id]
     # Update screen with new patch name
-    print_lcd(banks[currentBank].name, currentPatch.name)
-    print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
+    print_lcd("Bank {0}".format(currentBank),  banks[currentBank].name, currentPatch.name)
+    #print("Loaded Patch {0}: {1}".format(id, currentPatch.name))
     # This will set global currentPatch to be the current patch
       
 def updateBankScreen():
     # Prints the current bank name and number
     # Prints different text if the bank is 0 or a new bank
-    print("Bank " + str(currentBank))
+    #print("Bank " + str(currentBank))
     if (currentBank == 0):
-        print_lcd("System Bank", "Bank 0")
+        print_lcd("Bank 0", "System Bank")
     else:
         if currentBank in banks:
-            print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
+            print_lcd("Bank " + str(currentBank), banks[currentBank].name)
         else:
-            print_lcd("Untitled Bank", "Bank " + str(currentBank))
+            print_lcd("Bank " + str(currentBank), "Untitled Bank")
             
 def bank_change(button):
     global currentBank
@@ -119,11 +160,12 @@ def bank_change(button):
         if (currentBank < 0):
             currentBank = config.general['number_of_banks']
         updateBankScreen()
-   
 
-# Setup button handler
-#buttonHandler = ButtonHandler(config.buttons['stomp_buttons'], config.buttons['bank_button_up'], config.buttons['bank_button_down'])
-
+def loadChannel (channel):
+    katana.send_pc(int(channel))
+    #print("Loading channel {0}".format(channel))
+    print_lcd("Bank 0", "System Bank", "Channel {0}".format(channel))
+    
 # Setup GPIO buttons
 for button in config.buttons['stomp_buttons']:
     GPIO.setup(button, GPIO.IN, pull_up_down=GPIO.PUD_UP) 
@@ -134,7 +176,7 @@ GPIO.setup(config.buttons['bank_button_down'], GPIO.IN, pull_up_down=GPIO.PUD_UP
 GPIO.add_event_detect(config.buttons['bank_button_up'], GPIO.BOTH, bouncetime=500, callback=bank_change)
 GPIO.add_event_detect(config.buttons['bank_button_down'], GPIO.BOTH, bouncetime=500, callback=bank_change)
 
-# Display loading screen     
+# Display loading screen, will probably only display if clear_true is true
 print_lcd("Loading...","")
 
 # Backend stuff
@@ -149,65 +191,42 @@ banks = PresetsHandler.load_presets(config.files['preset_file'])
 # Setup amp
 katana = Katana(config.katana['amp'], config.katana['channel'], config.katana['clear_input'])
 print_lcd("Katana Ready", "Select Patch")
-
-def loadChannel (channel):
-    katana.send_pc(int(channel))
-    print("Loading channel {0}".format(channel))
-    print_lcd("System Bank", "Channel {0}".format(channel))
             
 try:
-    while (1 < 2):
-        c = str(input("> "))
-        if c == "list":
-            for i in banks:
-                print (banks[i].name)
-                for j in sorted(banks[i].presets):
-                    print("  {0}: {1}".format(j, banks[i].presets[j].name))
-        elif c == "save":
-            # TODO
-            i = int(input("Save As Patch Number: "))
-            capture_preset(katana, i)
-            print("Saved as " + presets[i].name)
-        elif c == "up":
-            currentBank += 1
-            print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
-        elif c == "down":
-            if(currentBank > 0):
-                currentBank -= 1
+    while (True):
+        while (not capturing):
+            c = str(input("> "))
+            if c == "list":
+                for i in banks:
+                    print (banks[i].name)
+                    for j in sorted(banks[i].presets):
+                        print("  {0}: {1}".format(j, banks[i].presets[j].name))
+            elif c == "save":
+                capturing = True
+                print("Capturing...")
+                print_lcd("Capturing...", "")
+            elif c == "save all":
+                PresetsHandler.save_presets(banks, config.files['preset_file'])
+                print("Saved all presets to disk")
+            elif c == "up":
+                currentBank += 1
                 print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
-        elif c == "load":
-            patch_id = int(input("Load Patch Number: "))
-            patch_id = int(buttonIndex) + 1
-            if patch_id in banks[currentBank].presets:
-                newPatch = banks[currentBank].presets[patch_id]
-                if (newPatch == currentPatch):
-                    if bypass == True: 
-                        bypass = False
-                        print("Bypass disabled")
-                    else:
-                        bypass = True
-                        print("Bypass enabled")
+            elif c == "down":
+                if(currentBank > 0):
+                    currentBank -= 1
+                    print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
+            elif c == "channel":
+                i = int(input("Load Channel (0-4): "))
+                if i <= 4:
+                    katana.send_pc(i)
+                    print("Loaded channel: " + str(i))
                 else:
-                    bypass = False
-                    currentPatch = load_patch(patch_id)                        
-            else: 
-                # here we will 'load' an empty patch (actually just loading the panel)
-                katana.send_pc(4)
-                print("No Patch " + str(patch_id) + ". Loading panel.")
-                print_lcd(banks[currentBank].name, "New Patch")
-                currentPatch = None
-        elif c == "channel":
-            i = int(input("Load Channel (0-4): "))
-            if i <= 4:
-                katana.send_pc(i)
-                print("Loaded channel: " + str(i))
-            else:
-                print("Not valid")
-        elif c == "clear":
-            i = int(input("Clear Patch Number: "))
-            banks[currentBank].presets.pop(i, None)
-            save_presets()
-            print ("Deleted preset " + str(i))
+                    print("Not valid")
+            elif c == "clear":
+                i = int(input("Clear Patch Number: "))
+                banks[currentBank].presets.pop(i, None)
+                save_presets()
+                print ("Deleted preset " + str(i))
             
 finally:  
     GPIO.cleanup()
