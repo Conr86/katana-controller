@@ -26,6 +26,7 @@ config = Config('config.toml')
 # Using the GPIO pin numbers (BOARD) instead of broadcom ids (BCM)
 # If you import RPLCD, it sets the mode to BOARD as well, so we'll stick with it.
 GPIO.setmode(GPIO.BOARD)
+GPIO.setwarnings(False)
 
 for pin in config.leds['pins']:
     GPIO.setup(pin, GPIO.OUT)
@@ -164,7 +165,10 @@ def bank_change(button):
 def loadChannel (channel):
     katana.send_pc(int(channel))
     #print("Loading channel {0}".format(channel))
-    print_lcd("Bank 0", "System Bank", "Channel {0}".format(channel))
+    if int(channel) == 4:
+        print_lcd("Bank 0", "System Bank", "Panel")
+    else:
+        print_lcd("Bank 0", "System Bank", "Channel {0}".format(int(channel) + 1))
     
 # Setup GPIO buttons
 for button in config.buttons['stomp_buttons']:
@@ -194,39 +198,38 @@ print_lcd("Katana Ready", "Select Patch")
             
 try:
     while (True):
-        while (not capturing):
-            c = str(input("> "))
-            if c == "list":
-                for i in banks:
-                    print (banks[i].name)
-                    for j in sorted(banks[i].presets):
-                        print("  {0}: {1}".format(j, banks[i].presets[j].name))
-            elif c == "save":
-                capturing = True
-                print("Capturing...")
-                print_lcd("Capturing...", "")
-            elif c == "save all":
-                PresetsHandler.save_presets(banks, config.files['preset_file'])
-                print("Saved all presets to disk")
-            elif c == "up":
-                currentBank += 1
+        c = str(input("> "))
+        if c == "list":
+            for i in banks:
+                print (banks[i].name)
+                for j in sorted(banks[i].presets):
+                    print("  {0}: {1}".format(j, banks[i].presets[j].name))
+        elif c == "save":
+            capturing = True
+            print("Capturing...")
+            print_lcd("Capturing...", "")
+        elif c == "save all":
+            PresetsHandler.save_presets(banks, config.files['preset_file'])
+            print("Saved all presets to disk")
+        elif c == "up":
+            currentBank += 1
+            print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
+        elif c == "down":
+            if(currentBank > 0):
+                currentBank -= 1
                 print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
-            elif c == "down":
-                if(currentBank > 0):
-                    currentBank -= 1
-                    print_lcd(banks[currentBank].name, "Bank " + str(currentBank))
-            elif c == "channel":
-                i = int(input("Load Channel (0-4): "))
-                if i <= 4:
-                    katana.send_pc(i)
-                    print("Loaded channel: " + str(i))
-                else:
-                    print("Not valid")
-            elif c == "clear":
-                i = int(input("Clear Patch Number: "))
-                banks[currentBank].presets.pop(i, None)
-                save_presets()
-                print ("Deleted preset " + str(i))
+        elif c == "channel":
+            i = int(input("Load Channel (0-4): "))
+            if i <= 4:
+                katana.send_pc(i)
+                print("Loaded channel: " + str(i))
+            else:
+                print("Not valid")
+        elif c == "clear":
+            i = int(input("Clear Patch Number: "))
+            banks[currentBank].presets.pop(i, None)
+            save_presets()
+            print ("Deleted preset " + str(i))
             
 finally:  
     GPIO.cleanup()

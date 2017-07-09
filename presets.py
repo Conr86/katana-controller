@@ -1,4 +1,5 @@
 import json
+import re
 
 '''
 This module contains any classes involving presets, e.g. bank, preset and the PresetsHandler
@@ -87,7 +88,8 @@ class PresetsHandler:
         banks = {}
         for bank in json_data:
             # get current bank id
-            bank_id = int(bank)
+            # regex to convert string "Bank 1" into integer 1
+            bank_id = int(re.sub('[^\d\.]', '', bank))
             # get current bank's name
             bank_name = json_data[bank]['name']
             # create empty container for all the presets in the bank
@@ -113,10 +115,10 @@ class PresetsHandler:
         try:
             json_data = {}
             for bank in banks:
-                json_data[int(bank)] = banks[bank].toJSON()
+                json_data["Bank {0}".format(int(bank))] = banks[bank].toJSON()
             # Open preset file
             with open(preset_file, 'w') as file:  
                 # Save to file  
-                json.dump(json_data, file, indent=4) 
+                json.dump(json_data, file, indent=4, sort_keys=True) 
         except OSError as e:
             print( "Error saving presets: " + e )

@@ -5,7 +5,7 @@ moar stuff here
 
 ```
 {
-    "1": { 
+    "Bank 1": { 
         "name": "General",
         "presets": {
             "1": {

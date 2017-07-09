@@ -6,13 +6,13 @@ number_of_banks = 9
 
 [files]
 # location of preset file
-preset_file = 'presets.json'
+preset_file = '/home/pi/katana/presets.json'
 # location of ranges.json, probably won't change
-ranges_file = 'parameters/ranges.json'
+ranges_file = '/home/pi/katana/parameters/ranges.json'
 
 [katana]
 amp = 'KATANA:KATANA MIDI 1 20:0'
-channel = 1
+channel = 0
 backend = 'mido.backends.rtmidi'
 clear_input = false
 
