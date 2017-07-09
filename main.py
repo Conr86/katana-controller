@@ -5,8 +5,7 @@ import sys
 import os
 import mido
 import RPi.GPIO as GPIO
-#from RPLCD import CharLCD
-import i2c_lcd_driver
+import i2c_lcd_driver #from RPLCD import CharLCD
 from katana import Katana
 from config import Config
 from presets import * # PresetsHandler, Bank, Preset, Range
@@ -26,8 +25,10 @@ config = Config('config.toml')
 # Using the GPIO pin numbers (BOARD) instead of broadcom ids (BCM)
 # If you import RPLCD, it sets the mode to BOARD as well, so we'll stick with it.
 GPIO.setmode(GPIO.BOARD)
+# Disable warnings, probably won't need this in normal usage
 GPIO.setwarnings(False)
 
+# Set all LEDs to out
 for pin in config.leds['pins']:
     GPIO.setup(pin, GPIO.OUT)
 
